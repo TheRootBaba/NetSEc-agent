@@ -14,22 +14,81 @@ from netsec_agent.authorization import AssessmentScope, validate_assessment
 from netsec_agent.settings import get_settings
 
 SERVER_PATH = Path(__file__).with_name("nmap_server.py")
-APPROVED_TOOL_NAMES = frozenset({"run_nmap_assessment"})
+
+APPROVED_TOOL_NAMES = frozenset(
+    {"run_nmap_assessment", "discover_private_subnet"}
+)
+
+SUPPORTED_SCAN_TYPES = frozenset(
+    {"host_discovery", "port_scan", "service_scan"}
+)
 
 
-def _guard_tool(tool: BaseTool, scope: AssessmentScope) -> StructuredTool:
-    """Wrap a discovered tool so every invocation checks the assessment scope."""
+def _guard_ip_tool(tool: BaseTool, scope: AssessmentScope) -> StructuredTool:
+    """Wrap a single-IP scan tool with deterministic scope enforcement."""
 
     async def guarded_invoke(target: str, scan_type: str) -> str:
+        if scan_type not in SUPPORTED_SCAN_TYPES:
+            raise PermissionError("This scan type is not supported.")
+
         normalized_target = validate_assessment(target, scan_type, scope)
+
         return await tool.ainvoke(
-            {"target": normalized_target, "scan_type": scan_type}
+            {
+                "target": normalized_target,
+                "scan_type": scan_type,
+            }
         )
 
     return StructuredTool.from_function(
         coroutine=guarded_invoke,
         name=tool.name,
-        description=tool.description,
+        description=(
+            f"{tool.description}\n"
+            "Supported scan types: host_discovery, port_scan, service_scan."
+        ),
+        args_schema=tool.args_schema,
+    )
+
+
+def _guard_subnet_tool(
+    tool: BaseTool,
+    scope: AssessmentScope,
+) -> StructuredTool:
+    """Wrap subnet discovery with explicit subnet authorization."""
+
+    async def guarded_invoke(subnet: str) -> str:
+        if not scope.authorized:
+            raise PermissionError("Subnet discovery is not authorized.")
+
+        approved_subnets = tuple(
+            item.strip()
+            for item in scope.approved_targets
+            if "/" in item
+        )
+
+        from ipaddress import IPv4Network, ip_network
+
+        try:
+            network = ip_network(subnet.strip(), strict=True)
+        except ValueError as exc:
+            raise ValueError("Enter a valid IPv4 network in CIDR notation.") from exc
+
+        if not isinstance(network, IPv4Network):
+            raise TypeError("Only IPv4 subnet discovery is supported.")
+        if str(network) not in approved_subnets:
+            raise PermissionError("Subnet is not explicitly approved for this assessment.")
+
+        return await tool.ainvoke({"subnet": str(network)})
+
+    return StructuredTool.from_function(
+        coroutine=guarded_invoke,
+        name=tool.name,
+        description=(
+            f"{tool.description}\n"
+            "Only explicitly approved private IPv4 subnets of at most 256 "
+            "addresses are permitted."
+        ),
         args_schema=tool.args_schema,
     )
 
@@ -38,32 +97,67 @@ def _guard_tool(tool: BaseTool, scope: AssessmentScope) -> StructuredTool:
 async def assessment_tools(
     scope: AssessmentScope,
 ) -> AsyncIterator[list[BaseTool]]:
-    """Yield authorized tools while the configured MCP server is connected."""
+    """Yield approved MCP tools while the configured server is connected."""
     settings = get_settings()
+
+    approved_ips = tuple(
+        target for target in scope.approved_targets if "/" not in target
+    )
+    approved_subnets = tuple(
+        target for target in scope.approved_targets if "/" in target
+    )
 
     server = StdioMCPServer(
         command=sys.executable,
         args=[str(SERVER_PATH)],
         env={
             "NETSEC_AUTHORIZED": str(scope.authorized).lower(),
-            "NETSEC_AUTHORIZED_TARGETS": ",".join(scope.approved_targets),
+            "NETSEC_AUTHORIZED_TARGETS": ",".join(approved_ips),
+            "NETSEC_AUTHORIZED_SUBNETS": ",".join(approved_subnets),
             "NMAP_PATH": settings.nmap_path,
         },
         cwd=str(SERVER_PATH.parents[2]),
         timeout=10,
     )
+
     config = MCPConfig(mcpServers={"nmap": server})
 
     async with MCPAdapter(config) as adapter:
         discovered = await adapter.list_tools()
+
+        if approved_subnets and approved_ips:
+            raise ValueError(
+                "Assessment scope must contain either IP targets or subnet targets, not both."
+            )
+
+        if approved_subnets:
+            expected_tool_names = {"discover_private_subnet"}
+        elif approved_ips:
+            expected_tool_names = {"run_nmap_assessment"}
+        else:
+            expected_tool_names = set()
+
         approved = [
-            tool for tool in discovered if tool.name in APPROVED_TOOL_NAMES
+            tool
+            for tool in discovered
+            if tool.name in APPROVED_TOOL_NAMES
+            and tool.name in expected_tool_names
         ]
 
         if not approved:
             available = sorted(tool.name for tool in discovered)
             raise RuntimeError(
-                f"No approved MCP tools discovered. Available tools: {available}"
+                "No approved MCP tools discovered. "
+                f"Available tools: {available}"
             )
 
-        yield [_guard_tool(tool, scope) for tool in approved]
+        guarded: list[BaseTool] = []
+
+        for tool in approved:
+            if tool.name == "run_nmap_assessment":
+                guarded.append(_guard_ip_tool(tool, scope))
+            elif tool.name == "discover_private_subnet":
+                guarded.append(_guard_subnet_tool(tool, scope))
+
+        yield guarded
+

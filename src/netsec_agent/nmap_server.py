@@ -1,8 +1,10 @@
-"""Restricted MCP server for authorized Nmap assessments."""
+
+"""Restricted MCP server for authorized network assessments."""
 
 import os
+import re
 import subprocess
-from ipaddress import ip_address
+from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,15 +17,49 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 mcp = MCPServer(
     name="netsec-nmap",
-    instructions="Runs fixed Nmap profiles against explicitly approved IPs.",
+    instructions=(
+        "Runs fixed Nmap profiles against explicitly approved targets. "
+        "Supports single-IP host discovery, TCP port scans, service detection, "
+        "and bounded discovery of approved private IPv4 subnets. "
+        "Host evidence is parsed deterministically from Nmap output."
+    ),
 )
 
 SCAN_PROFILES = {
     "host_discovery": ["-sn", "-T3"],
     "port_scan": ["-sT", "-T3", "--top-ports", "100"],
+    "service_scan": ["-sT", "-sV", "-T3", "--top-ports", "100"],
 }
-SCAN_TIMEOUT_SECONDS = 45
+
+SCAN_TIMEOUT_SECONDS = 60
 MAX_OUTPUT_CHARS = 12_000
+MAX_SUBNET_ADDRESSES = 256
+
+PROFILE_DESCRIPTIONS = {
+    "host_discovery": "Host discovery; does not enumerate ports.",
+    "port_scan": "TCP connect scan of the top 100 ports.",
+    "service_scan": (
+        "TCP connect scan with service-version detection on the top 100 ports."
+    ),
+}
+
+
+def _authorization_enabled() -> bool:
+    """Return whether the parent application enabled authorization."""
+    return os.getenv("NETSEC_AUTHORIZED", "").lower() == "true"
+
+
+def _approved_ips() -> set[str]:
+    """Load normalized individual IP addresses from the approved scope."""
+    approved = set()
+
+    for item in os.getenv("NETSEC_AUTHORIZED_TARGETS", "").split(","):
+        try:
+            approved.add(str(ip_address(item.strip())))
+        except ValueError:
+            continue
+
+    return approved
 
 
 def _validate_target(target: str) -> str:
@@ -31,48 +67,42 @@ def _validate_target(target: str) -> str:
     if not isinstance(target, str) or not target.strip():
         raise ValueError("Provide one IP address.")
 
-    if "/" in target:
-        raise ValueError("Network ranges are not allowed.")
+    candidate = target.strip()
+
+    if "/" in candidate:
+        raise ValueError("Network ranges are not allowed by this tool.")
 
     try:
-        normalized = str(ip_address(target.strip()))
+        normalized = str(ip_address(candidate))
     except ValueError as exc:
         raise ValueError("Target must be an IPv4 or IPv6 address.") from exc
 
-    if os.getenv("NETSEC_AUTHORIZED", "").lower() != "true":
+    if not _authorization_enabled():
         raise PermissionError("Assessment authorization has not been enabled.")
 
-    approved = set()
-    for item in os.getenv("NETSEC_AUTHORIZED_TARGETS", "").split(","):
-        try:
-            approved.add(str(ip_address(item.strip())))
-        except ValueError:
-            continue
-
-    if normalized not in approved:
+    if normalized not in _approved_ips():
         raise PermissionError("Target is not in the approved target list.")
 
     return normalized
 
 
-@mcp.tool()
-def run_nmap_assessment(target: str, scan_type: str) -> str:
-    """Run a fixed Nmap profile against one approved IP.
+def _validate_subnet_scope(subnet: str) -> str:
+    """Validate the bounded subnet approved by the parent scope guard."""
+    if not _authorization_enabled():
+        raise PermissionError("Subnet discovery is not authorized.")
 
-    scan_type must be 'host_discovery' or 'port_scan'.
-    """
-    if scan_type not in SCAN_PROFILES:
-        raise ValueError("Unsupported scan type.")
+    try:
+        network = ip_network(subnet.strip(), strict=True)
+    except ValueError as exc:
+        raise ValueError("Enter a valid IPv4 network in CIDR notation.") from exc
 
-    normalized_target = _validate_target(target)
-    command = [
-        os.getenv("NMAP_PATH", "nmap"),
-        *SCAN_PROFILES[scan_type],
-        "-oN",
-        "-",
-        normalized_target,
-    ]
+    if not isinstance(network, IPv4Network):
+        raise TypeError("Only IPv4 subnets are supported.")
 
+    return str(network)
+
+def _run_nmap(command: list[str]) -> str:
+    """Execute a fixed Nmap command with bounded time and output."""
     try:
         result = subprocess.run(
             command,
@@ -83,9 +113,13 @@ def run_nmap_assessment(target: str, scan_type: str) -> str:
             shell=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Nmap exceeded the 45-second time limit.") from exc
+        raise RuntimeError(
+            f"Nmap exceeded the {SCAN_TIMEOUT_SECONDS}-second time limit."
+        ) from exc
     except OSError as exc:
-        raise RuntimeError("Could not start Nmap; check NMAP_PATH.") from exc
+        raise RuntimeError(
+            "Could not start Nmap. Check that Nmap is installed and NMAP_PATH is correct."
+        ) from exc
 
     output = (result.stdout + "\n" + result.stderr).strip()
 
@@ -94,15 +128,108 @@ def run_nmap_assessment(target: str, scan_type: str) -> str:
             f"Nmap failed (exit code {result.returncode}): {output[:2000]}"
         )
 
+    return output[:MAX_OUTPUT_CHARS]
+
+
+def _parse_discovered_hosts(output: str) -> list[dict[str, str]]:
+    """Extract hosts explicitly reported up by Nmap."""
+    hosts: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+
+        if line.startswith("Nmap scan report for "):
+            target = line.removeprefix("Nmap scan report for ").strip()
+            hostname = ""
+            address = target
+
+            # Nmap may report: hostname (192.168.100.1)
+            match = re.fullmatch(r"(.+?)\s+\(([^()]+)\)", target)
+            if match:
+                possible_hostname, possible_address = match.groups()
+                try:
+                    address = str(IPv4Address(possible_address))
+                    hostname = possible_hostname
+                except ValueError:
+                    current = None
+                    continue
+
+            try:
+                address = str(IPv4Address(address))
+            except ValueError:
+                current = None
+                continue
+
+            current = {
+                "ip": address,
+                "hostname": hostname,
+                "mac": "",
+                "vendor": "",
+                "status": "",
+            }
+            hosts.append(current)
+            continue
+
+        if current is None:
+            continue
+
+        if re.search(r"\bHost is up\b", line, flags=re.IGNORECASE):
+            current["status"] = "up"
+            continue
+
+        mac_match = re.match(
+            r"MAC Address:\s*([0-9A-Fa-f:]{17})(?:\s+\((.*?)\))?",
+            line,
+        )
+        if mac_match:
+            current["mac"] = mac_match.group(1).upper()
+            current["vendor"] = (mac_match.group(2) or "").strip()
+
+    # Never report a host as live unless Nmap explicitly said it was up.
+    return [host for host in hosts if host["status"] == "up"]
+
+
+def _markdown_cell(value: str) -> str:
+    """Escape values before placing them in a Markdown table."""
+    return value.replace("|", r"\|").replace("\n", " ").strip()
+
+
+@mcp.tool()
+def run_nmap_assessment(target: str, scan_type: str) -> str:
+    """Run a fixed Nmap profile against one approved IP address.
+
+    Args:
+        target: One IPv4 or IPv6 address in the approved assessment scope.
+        scan_type: host_discovery, port_scan, or service_scan.
+    """
+    if scan_type not in SCAN_PROFILES:
+        raise ValueError(
+            "Unsupported scan type. Choose host_discovery, port_scan, or service_scan."
+        )
+
+    normalized_target = _validate_target(target)
+
+    command = [
+        os.getenv("NMAP_PATH", "nmap"),
+        *SCAN_PROFILES[scan_type],
+        "-oN",
+        "-",
+        normalized_target,
+    ]
+
+    output = _run_nmap(command)
+
     report = (
+        "=== Nmap Assessment Evidence ===\n"
         f"Target: {normalized_target}\n"
         f"Profile: {scan_type}\n"
-        f"Exit code: {result.returncode}\n\n"
-        f"{output[:MAX_OUTPUT_CHARS]}"
+        f"Profile description: {PROFILE_DESCRIPTIONS[scan_type]}\n\n"
+        f"{output}"
     )
 
-    if scan_type == "port_scan":
-        ports = parse_nmap_open_tcp_ports(result.stdout)
+    if scan_type in {"port_scan", "service_scan"}:
+        ports = parse_nmap_open_tcp_ports(output)
         assessment = score_open_ports(ports)
 
         findings = (
@@ -118,12 +245,98 @@ def run_nmap_assessment(target: str, scan_type: str) -> str:
             "\n\n=== Deterministic Exposure Assessment ===\n"
             f"Observed open TCP ports: {list(assessment.open_ports)}\n"
             f"Exposure score: {assessment.score}/100 "
-            "(higher means less observed exposure)\n\n"
+            "(higher means less observed exposure under this heuristic)\n\n"
             f"Findings:\n{findings}\n\n"
             f"Limitations:\n{limitations}"
         )
 
+        if scan_type == "service_scan":
+            report += (
+                "\n\nService-version detection was requested. Use the Nmap "
+                "output above as the source for reported service names and "
+                "versions. A service fingerprint alone does not establish "
+                "that a vulnerability exists."
+            )
+
+    report += (
+        "\n\n=== Assessment Limitations ===\n"
+        "- Results describe only what this scan observed.\n"
+        "- Patch status, authentication strength, and exploitability were not verified.\n"
+        "- An unobserved or closed port does not prove that the host is secure."
+    )
+
     return report
+
+
+@mcp.tool()
+def discover_private_subnet(subnet: str) -> str:
+    """Discover hosts on one explicitly approved private IPv4 subnet.
+
+    Host discovery only; no ports or services are scanned.
+
+    Args:
+        subnet: An approved private IPv4 network, such as 192.168.100.0/24.
+    """
+    normalized_subnet = _validate_subnet_scope(subnet)
+    network = ip_network(normalized_subnet, strict=True)
+
+    command = [
+        os.getenv("NMAP_PATH", "nmap"),
+        "-sn",
+        "-T3",
+        "-oN",
+        "-",
+        normalized_subnet,
+    ]
+
+    output = _run_nmap(command)
+    hosts = _parse_discovered_hosts(output)
+
+    rows = [
+        "| IP address | Hostname | MAC address | Nmap-reported vendor |",
+        "|---|---|---|---|",
+    ]
+
+    for host in hosts:
+        rows.append(
+            "| "
+            + " | ".join(
+                _markdown_cell(host[key] or "Not reported")
+                for key in ("ip", "hostname", "mac", "vendor")
+            )
+            + " |"
+        )
+
+    host_table = (
+        "\n".join(rows)
+        if hosts
+        else (
+            "Nmap output contained no hosts explicitly reported as up "
+            "that this parser could identify."
+        )
+    )
+
+    return (
+        "=== Private Subnet Discovery ===\n"
+        f"Approved subnet: {normalized_subnet}\n"
+        f"Address count: {network.num_addresses}\n"
+        "Scan profile: Nmap -sn (host discovery only)\n"
+        f"Hosts explicitly reported up by Nmap: {len(hosts)}\n\n"
+        "=== Parsed Host Evidence ===\n"
+        f"{host_table}\n\n"
+        "Field provenance: IP addresses, hostnames, MAC addresses, and "
+        "vendor labels are extracted from Nmap output. Missing fields are "
+        "shown as Not reported. Vendor labels are Nmap-reported and are "
+        "not independent verification of device identity.\n\n"
+        "=== Raw Nmap Output ===\n"
+        f"{output}\n\n"
+        "=== Limitations ===\n"
+        "- Only hosts explicitly reported as up and recognized by the "
+        "parser are included in the table.\n"
+        "- A missing host does not prove that the device is absent.\n"
+        "- Hostnames and MAC/vendor details may be unavailable.\n"
+        "- No ports, service versions, or vulnerabilities were assessed."
+    )
 
 
 if __name__ == "__main__":

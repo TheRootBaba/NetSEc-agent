@@ -5,7 +5,9 @@ from ipaddress import ip_address
 
 from netsec_agent.scope import validate_target
 
-ALLOWED_SCAN_TYPES = frozenset({"host_discovery", "port_scan"})
+ALLOWED_SCAN_TYPES = frozenset(
+    {"host_discovery", "port_scan", "service_scan"}
+)
 
 
 @dataclass(frozen=True)
