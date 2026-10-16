@@ -50,9 +50,7 @@ def score_open_ports(ports: list[int] | tuple[int, ...]) -> ExposureScore:
     normalized = tuple(sorted(set(ports)))
 
     if any(
-        not isinstance(port, int)
-        or isinstance(port, bool)
-        or not 1 <= port <= 65535
+        not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535
         for port in normalized
     ):
         raise ValueError("Ports must be integers between 1 and 65535.")
@@ -75,11 +73,11 @@ def score_open_ports(ports: list[int] | tuple[int, ...]) -> ExposureScore:
         elif port == 445:
             findings.append("SMB is exposed; restrict access to trusted networks.")
         elif port == 3389:
-            findings.append("RDP is exposed; restrict remote access and enforce strong authentication.")
-        elif port in (3306, 5432, 6379, 27017):
             findings.append(
-                f"Data-service port {port} is exposed; verify network access controls."
+                "RDP is exposed; restrict remote access and enforce strong authentication."
             )
+        elif port in (3306, 5432, 6379, 27017):
+            findings.append(f"Data-service port {port} is exposed; verify network access controls.")
         elif port == 5900:
             findings.append("VNC is exposed; restrict remote desktop access.")
         else:

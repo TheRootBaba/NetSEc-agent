@@ -1,4 +1,3 @@
-
 """Route explicit network assessment requests away from ordinary chat."""
 
 import re

@@ -1,4 +1,3 @@
-﻿
 """Validation for explicitly approved private IPv4 subnet discovery."""
 
 from ipaddress import IPv4Network, ip_network
@@ -37,14 +36,11 @@ def validate_subnet(
 
     if network.prefixlen == 32:
         raise ValueError(
-            "A /32 is a single IP address. Enter a subnet range, "
-            "such as 192.168.100.0/24."
+            "A /32 is a single IP address. Enter a subnet range, such as 192.168.100.0/24."
         )
 
     if network.num_addresses > MAX_HOSTS:
-        raise ValueError(
-            f"Subnet discovery is limited to {MAX_HOSTS} addresses."
-        )
+        raise ValueError(f"Subnet discovery is limited to {MAX_HOSTS} addresses.")
 
     approved_networks = set()
 
@@ -58,8 +54,6 @@ def validate_subnet(
             approved_networks.add(candidate)
 
     if network not in approved_networks:
-        raise PermissionError(
-            "Subnet is not explicitly approved for this assessment."
-        )
+        raise PermissionError("Subnet is not explicitly approved for this assessment.")
 
     return str(network)

@@ -1,4 +1,3 @@
-
 import pytest
 
 from netsec_agent.routing import is_scan_request

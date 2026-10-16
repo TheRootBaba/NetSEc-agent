@@ -1,4 +1,3 @@
-
 import pytest
 
 from netsec_agent.scope import validate_target

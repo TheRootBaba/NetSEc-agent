@@ -1,4 +1,3 @@
-
 """Discover MCP tools and enforce assessment scope before execution."""
 
 import sys
@@ -15,13 +14,9 @@ from netsec_agent.settings import get_settings
 
 SERVER_PATH = Path(__file__).with_name("nmap_server.py")
 
-APPROVED_TOOL_NAMES = frozenset(
-    {"run_nmap_assessment", "discover_private_subnet"}
-)
+APPROVED_TOOL_NAMES = frozenset({"run_nmap_assessment", "discover_private_subnet"})
 
-SUPPORTED_SCAN_TYPES = frozenset(
-    {"host_discovery", "port_scan", "service_scan"}
-)
+SUPPORTED_SCAN_TYPES = frozenset({"host_discovery", "port_scan", "service_scan"})
 
 
 def _guard_ip_tool(tool: BaseTool, scope: AssessmentScope) -> StructuredTool:
@@ -44,8 +39,7 @@ def _guard_ip_tool(tool: BaseTool, scope: AssessmentScope) -> StructuredTool:
         coroutine=guarded_invoke,
         name=tool.name,
         description=(
-            f"{tool.description}\n"
-            "Supported scan types: host_discovery, port_scan, service_scan."
+            f"{tool.description}\nSupported scan types: host_discovery, port_scan, service_scan."
         ),
         args_schema=tool.args_schema,
     )
@@ -61,11 +55,7 @@ def _guard_subnet_tool(
         if not scope.authorized:
             raise PermissionError("Subnet discovery is not authorized.")
 
-        approved_subnets = tuple(
-            item.strip()
-            for item in scope.approved_targets
-            if "/" in item
-        )
+        approved_subnets = tuple(item.strip() for item in scope.approved_targets if "/" in item)
 
         from ipaddress import IPv4Network, ip_network
 
@@ -100,12 +90,8 @@ async def assessment_tools(
     """Yield approved MCP tools while the configured server is connected."""
     settings = get_settings()
 
-    approved_ips = tuple(
-        target for target in scope.approved_targets if "/" not in target
-    )
-    approved_subnets = tuple(
-        target for target in scope.approved_targets if "/" in target
-    )
+    approved_ips = tuple(target for target in scope.approved_targets if "/" not in target)
+    approved_subnets = tuple(target for target in scope.approved_targets if "/" in target)
 
     server = StdioMCPServer(
         command=sys.executable,
@@ -140,16 +126,12 @@ async def assessment_tools(
         approved = [
             tool
             for tool in discovered
-            if tool.name in APPROVED_TOOL_NAMES
-            and tool.name in expected_tool_names
+            if tool.name in APPROVED_TOOL_NAMES and tool.name in expected_tool_names
         ]
 
         if not approved:
             available = sorted(tool.name for tool in discovered)
-            raise RuntimeError(
-                "No approved MCP tools discovered. "
-                f"Available tools: {available}"
-            )
+            raise RuntimeError(f"No approved MCP tools discovered. Available tools: {available}")
 
         guarded: list[BaseTool] = []
 
@@ -160,4 +142,3 @@ async def assessment_tools(
                 guarded.append(_guard_subnet_tool(tool, scope))
 
         yield guarded
-

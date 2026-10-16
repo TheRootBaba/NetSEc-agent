@@ -1,4 +1,3 @@
-
 import pytest
 
 from netsec_agent.authorization import AssessmentScope

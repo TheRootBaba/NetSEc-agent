@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import asyncio
@@ -382,6 +380,7 @@ st.markdown(
 
 # Validation and agent helpers
 
+
 def _extract_target(message: str) -> str | None:
     """Extract the first IPv4 address or IPv4 CIDR target."""
     match = TARGET_PATTERN.search(message)
@@ -418,19 +417,14 @@ def _validate_target(target: str) -> str:
                 raise ValueError("Only IPv4 subnets are supported.")
 
             if not network.is_private:
-                raise ValueError(
-                    "Subnet discovery is limited to private IPv4 networks."
-                )
+                raise ValueError("Subnet discovery is limited to private IPv4 networks.")
 
             if network.prefixlen == 32:
-                raise ValueError(
-                    "Enter a subnet range rather than a /32 host."
-                )
+                raise ValueError("Enter a subnet range rather than a /32 host.")
 
             if network.num_addresses > MAX_SUBNET_ADDRESSES:
                 raise ValueError(
-                    f"Subnet discovery is limited to "
-                    f"{MAX_SUBNET_ADDRESSES} addresses per request."
+                    f"Subnet discovery is limited to {MAX_SUBNET_ADDRESSES} addresses per request."
                 )
 
             return str(network)
@@ -447,9 +441,7 @@ def _validate_target(target: str) -> str:
             or address.is_link_local
             or address.is_reserved
         ):
-            raise ValueError(
-                "This address is not supported as a remote assessment target."
-            )
+            raise ValueError("This address is not supported as a remote assessment target.")
 
         return str(address)
 
@@ -519,8 +511,7 @@ def _response_text(result: Any) -> str:
                 parts = [
                     item.get("text", "")
                     for item in content
-                    if isinstance(item, dict)
-                    and isinstance(item.get("text"), str)
+                    if isinstance(item, dict) and isinstance(item.get("text"), str)
                 ]
                 combined = "\n".join(parts).strip()
                 if combined:
@@ -673,10 +664,7 @@ with st.sidebar:
         st.session_state.messages = [
             {
                 "role": "assistant",
-                "content": (
-                    "New conversation started. What would you like to "
-                    "investigate?"
-                ),
+                "content": ("New conversation started. What would you like to investigate?"),
             }
         ]
         st.session_state.pending_assessment = None
@@ -715,7 +703,11 @@ metric_columns = st.columns(3)
 
 metric_cards = [
     ("WORKSPACE", "Security assistant", "Conversational investigation"),
-    ("SUCCESSFUL RUNS", str(st.session_state.assessment_count), "Agent runs without a reported workflow error"),
+    (
+        "SUCCESSFUL RUNS",
+        str(st.session_state.assessment_count),
+        "Agent runs without a reported workflow error",
+    ),
     ("SCOPE", "Confirmation required", "Assessment starts only after confirmation"),
 ]
 
@@ -738,8 +730,8 @@ st.markdown(
 )
 st.markdown(
     '<div class="ns-section-subtitle">'
-    'Ask a question or start an explicitly authorized assessment.'
-    '</div>',
+    "Ask a question or start an explicitly authorized assessment."
+    "</div>",
     unsafe_allow_html=True,
 )
 
@@ -812,10 +804,13 @@ if pending:
     if confirm:
         st.session_state.pending_assessment = None
 
-        with st.chat_message("assistant", avatar="🛡️"), st.status(
-            f"Assessing {target}…",
-            expanded=True,
-        ) as status:
+        with (
+            st.chat_message("assistant", avatar="🛡️"),
+            st.status(
+                f"Assessing {target}…",
+                expanded=True,
+            ) as status,
+        ):
             st.write("Validating the requested target and scope.")
 
             try:
@@ -872,10 +867,7 @@ if pending:
                         "content": answer,
                     }
                 )
-                if (
-                    not workflow_failed
-                    and _is_successful_assessment_response(answer)
-                ):
+                if not workflow_failed and _is_successful_assessment_response(answer):
                     st.session_state.assessment_count += 1
 
             except (ValueError, TypeError, PermissionError) as exc:
@@ -897,9 +889,7 @@ if pending:
 
 # Chat input
 
-chat_placeholder = (
-    "Ask about your network, ports, services, or defensive controls…"
-)
+chat_placeholder = "Ask about your network, ports, services, or defensive controls…"
 
 quick_prompt = st.session_state.pop("quick_prompt", "")
 
@@ -909,14 +899,20 @@ else:
     user_input = st.chat_input(chat_placeholder)
 
 if user_input:
-    st.session_state.messages.append(
-        {"role": "user", "content": user_input}
-    )
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
     normalized_input = user_input.strip().casefold()
     if normalized_input in {
-        "i approve", "approved", "i approve it", "yes", "yes please",
-        "sure", "ok", "okay", "go ahead", "do it",
+        "i approve",
+        "approved",
+        "i approve it",
+        "yes",
+        "yes please",
+        "sure",
+        "ok",
+        "okay",
+        "go ahead",
+        "do it",
     }:
         answer = (
             "Approval noted, but no scan was started from this message. "
@@ -925,9 +921,7 @@ if user_input:
         )
         with st.chat_message("assistant", avatar="assistant"):
             st.markdown(answer)
-        st.session_state.messages.append(
-            {"role": "assistant", "content": answer}
-        )
+        st.session_state.messages.append({"role": "assistant", "content": answer})
         st.rerun()
 
     target = _extract_target(user_input)
@@ -966,7 +960,5 @@ if user_input:
 
         st.markdown(_format_agent_response(answer))
 
-    st.session_state.messages.append(
-        {"role": "assistant", "content": answer}
-    )
+    st.session_state.messages.append({"role": "assistant", "content": answer})
     st.rerun()

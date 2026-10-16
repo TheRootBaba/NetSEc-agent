@@ -1,4 +1,3 @@
-
 """Validate individual IP targets before any network assessment."""
 
 from ipaddress import ip_address

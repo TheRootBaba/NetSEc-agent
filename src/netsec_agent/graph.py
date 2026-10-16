@@ -75,9 +75,7 @@ async def run_agent(
     settings = get_settings()
 
     if not settings.groq_api_key:
-        raise RuntimeError(
-            "GROQ_API_KEY is missing. Add it to your local .env file."
-        )
+        raise RuntimeError("GROQ_API_KEY is missing. Add it to your local .env file.")
 
     from langchain_groq import ChatGroq
 
@@ -98,9 +96,19 @@ async def run_agent(
         # a scan or establish the assessment scope.
         normalized = user_message.strip().lower()
         ambiguous_followups = {
-            "yes", "yes please", "sure", "ok", "okay",
-            "go ahead", "do it", "continue", "please do",
-            "everything", "all", "all of it", "all of them",
+            "yes",
+            "yes please",
+            "sure",
+            "ok",
+            "okay",
+            "go ahead",
+            "do it",
+            "continue",
+            "please do",
+            "everything",
+            "all",
+            "all of it",
+            "all of them",
         }
         if normalized in ambiguous_followups:
             response = AIMessage(

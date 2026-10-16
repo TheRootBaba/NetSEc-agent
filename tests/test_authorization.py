@@ -13,10 +13,7 @@ def approved_scope() -> AssessmentScope:
 
 
 def test_allows_explicitly_approved_target() -> None:
-    assert (
-        validate_assessment("192.168.1.10", "port_scan", approved_scope())
-        == "192.168.1.10"
-    )
+    assert validate_assessment("192.168.1.10", "port_scan", approved_scope()) == "192.168.1.10"
 
 
 def test_denies_when_not_authorized() -> None:

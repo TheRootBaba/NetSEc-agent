@@ -1,4 +1,3 @@
-
 """Restricted MCP server for authorized network assessments."""
 
 import os
@@ -38,9 +37,7 @@ MAX_OUTPUT_CHARS = 12_000
 PROFILE_DESCRIPTIONS = {
     "host_discovery": "Host discovery; does not enumerate ports.",
     "port_scan": "TCP connect scan of the top 100 ports.",
-    "service_scan": (
-        "TCP connect scan with service-version detection on the top 100 ports."
-    ),
+    "service_scan": ("TCP connect scan with service-version detection on the top 100 ports."),
 }
 
 
@@ -99,6 +96,7 @@ def _validate_subnet_scope(subnet: str) -> str:
         authorized=_authorization_enabled(),
     )
 
+
 def _run_nmap(command: list[str]) -> str:
     """Execute a fixed Nmap command with bounded time and output."""
     try:
@@ -111,9 +109,7 @@ def _run_nmap(command: list[str]) -> str:
             shell=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
-            f"Nmap exceeded the {SCAN_TIMEOUT_SECONDS}-second time limit."
-        ) from exc
+        raise RuntimeError(f"Nmap exceeded the {SCAN_TIMEOUT_SECONDS}-second time limit.") from exc
     except OSError as exc:
         raise RuntimeError(
             "Could not start Nmap. Check that Nmap is installed and NMAP_PATH is correct."
@@ -122,9 +118,7 @@ def _run_nmap(command: list[str]) -> str:
     output = (result.stdout + "\n" + result.stderr).strip()
 
     if result.returncode != 0:
-        raise RuntimeError(
-            f"Nmap failed (exit code {result.returncode}): {output[:2000]}"
-        )
+        raise RuntimeError(f"Nmap failed (exit code {result.returncode}): {output[:2000]}")
 
     return output[:MAX_OUTPUT_CHARS]
 
@@ -235,9 +229,7 @@ def run_nmap_assessment(target: str, scan_type: str) -> str:
             if assessment.findings
             else "- No open TCP ports were identified in the parsed output."
         )
-        limitations = "\n".join(
-            f"- {item}" for item in assessment.limitations
-        )
+        limitations = "\n".join(f"- {item}" for item in assessment.limitations)
 
         report += (
             "\n\n=== Deterministic Exposure Assessment ===\n"
