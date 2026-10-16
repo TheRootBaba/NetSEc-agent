@@ -45,9 +45,6 @@ Only scan systems and networks you have permission to assess. Risk scores are es
 
 See `LICENSE` for license information.
 
-https://github.com/user-attachments/assets/870edb32-20fc-4f8a-aaf3-4c7679b5109c
+## Demo
 
-
-
-
-
+[Watch the working agent demo](https://github.com/user-attachments/assets/870edb32-20fc-4f8a-aaf3-4c7679b5109c)
