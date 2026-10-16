@@ -39,9 +39,7 @@ st.set_page_config(
 )
 
 
-# ---------------------------------------------------------------------
 # Styling
-# ---------------------------------------------------------------------
 
 st.markdown(
     """
@@ -382,9 +380,7 @@ st.markdown(
 )
 
 
-# ---------------------------------------------------------------------
 # Validation and agent helpers
-# ---------------------------------------------------------------------
 
 def _extract_target(message: str) -> str | None:
     """Extract the first IPv4 address or IPv4 CIDR target."""
@@ -612,9 +608,7 @@ def _initialize_state() -> None:
 _initialize_state()
 
 
-# ---------------------------------------------------------------------
 # Sidebar
-# ---------------------------------------------------------------------
 
 with st.sidebar:
     st.markdown(
@@ -700,9 +694,7 @@ with st.sidebar:
     )
 
 
-# ---------------------------------------------------------------------
 # Main header and dashboard
-# ---------------------------------------------------------------------
 
 st.markdown(
     """
@@ -752,9 +744,7 @@ st.markdown(
 )
 
 
-# ---------------------------------------------------------------------
 # Conversation history
-# ---------------------------------------------------------------------
 
 for message in st.session_state.messages:
     with st.chat_message(
@@ -764,9 +754,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 
-# ---------------------------------------------------------------------
 # Pending scan authorization
-# ---------------------------------------------------------------------
 
 pending = st.session_state.pending_assessment
 
@@ -907,9 +895,7 @@ if pending:
         st.rerun()
 
 
-# ---------------------------------------------------------------------
 # Chat input
-# ---------------------------------------------------------------------
 
 chat_placeholder = (
     "Ask about your network, ports, services, or defensive controls…"
