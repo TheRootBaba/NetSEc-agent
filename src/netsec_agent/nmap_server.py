@@ -4,13 +4,14 @@
 import os
 import re
 import subprocess
-from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
+from ipaddress import IPv4Address, ip_address, ip_network
 from pathlib import Path
 
 from dotenv import load_dotenv
 from mcp.server.mcpserver import MCPServer
 
 from netsec_agent.scoring import parse_nmap_open_tcp_ports, score_open_ports
+from netsec_agent.subnet_scope import validate_subnet
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
@@ -33,7 +34,6 @@ SCAN_PROFILES = {
 
 SCAN_TIMEOUT_SECONDS = 60
 MAX_OUTPUT_CHARS = 12_000
-MAX_SUBNET_ADDRESSES = 256
 
 PROFILE_DESCRIPTIONS = {
     "host_discovery": "Host discovery; does not enumerate ports.",
@@ -87,19 +87,17 @@ def _validate_target(target: str) -> str:
 
 
 def _validate_subnet_scope(subnet: str) -> str:
-    """Validate the bounded subnet approved by the parent scope guard."""
-    if not _authorization_enabled():
-        raise PermissionError("Subnet discovery is not authorized.")
-
-    try:
-        network = ip_network(subnet.strip(), strict=True)
-    except ValueError as exc:
-        raise ValueError("Enter a valid IPv4 network in CIDR notation.") from exc
-
-    if not isinstance(network, IPv4Network):
-        raise TypeError("Only IPv4 subnets are supported.")
-
-    return str(network)
+    """Enforce authorization, private IPv4, size, and approved-subnet checks."""
+    approved_subnets = tuple(
+        item.strip()
+        for item in os.getenv("NETSEC_AUTHORIZED_SUBNETS", "").split(",")
+        if item.strip()
+    )
+    return validate_subnet(
+        subnet=subnet,
+        approved_subnets=approved_subnets,
+        authorized=_authorization_enabled(),
+    )
 
 def _run_nmap(command: list[str]) -> str:
     """Execute a fixed Nmap command with bounded time and output."""

@@ -1,8 +1,0 @@
-pyproject.toml
-src/netsec_agent/__init__.py
-src/netsec_agent/settings.py
-src/netsec_agent.egg-info/PKG-INFO
-src/netsec_agent.egg-info/SOURCES.txt
-src/netsec_agent.egg-info/dependency_links.txt
-src/netsec_agent.egg-info/requires.txt
-src/netsec_agent.egg-info/top_level.txt

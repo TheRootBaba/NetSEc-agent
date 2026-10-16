@@ -7,3 +7,15 @@ __pycache__/
 .mypy_cache/
 dist/
 build/
+
+# Generated Python packaging metadata
+*.egg-info/
+
+# Local environment and editor files
+.python-version
+.vscode/
+.idea/
+
+# Coverage output
+.coverage
+htmlcov/
